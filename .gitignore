@@ -1,0 +1,59 @@
+# -------------------------
+# PYTHON / DJANGO
+# -------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+
+# Local settings / secrets
+*.env
+*.log
+*.pem
+
+# SQLite (if created mistakenly)
+db.sqlite3
+
+# Django generated folders
+media/
+staticfiles/
+
+# Migrations cache (optional)
+**/migrations/__pycache__/
+
+# -------------------------
+# POSTGRES / REDIS FILES
+# -------------------------
+*.pid
+
+# -------------------------
+# FRONTEND (React / Vite / Next)
+# -------------------------
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/out/
+
+# Environment files
+frontend/.env
+frontend/.env.local
+frontend/.env.development
+frontend/.env.production
+
+# -------------------------
+# OS FILES
+# -------------------------
+.DS_Store
+Thumbs.db
+
+# -------------------------
+# IDE / EDITOR
+# -------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
