@@ -11,7 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
-import environ, os
+import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -131,12 +131,25 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler'},
+    },
+    'loggers': {
+        'webhooks': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'tasks': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'analyzer': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+    },
+}
 
 # Celery
 CELERY_BROKER_URL = env('REDIS_URL')
 CELERY_RESULT_BACKEND = env('REDIS_URL')
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']
+CELERY_IMPORTS = ('tasks.review_tasks',)
 
 # GitHub App
 GITHUB_APP_ID = env('GITHUB_APP_ID')
@@ -146,3 +159,15 @@ GITHUB_PRIVATE_KEY_PATH = env('GITHUB_PRIVATE_KEY_PATH')
 # Gemini
 GEMINI_API_KEY = env('GEMINI_API_KEY')
 GEMINI_MODEL = env('GEMINI_MODEL', default='gemini-1.5-flash')
+
+# OpenAI
+OPENAI_API_KEY = env('OPENAI_API_KEY', default='')
+OPENAI_MODEL = env('OPENAI_MODEL', default='gpt-4o')
+
+# OpenRouter / LLM (use django-environ so Celery workers load .env like manage.py)
+OPENROUTER_API_KEY = env('OPENROUTER_API_KEY', default='')
+LLM_API_KEY = env('LLM_API_KEY', default='') or OPENROUTER_API_KEY
+LLM_MODEL = env('LLM_MODEL', default='meta-llama/llama-3.3-70b-instruct')
+LLM_PROVIDER = env('LLM_PROVIDER', default='openrouter')
+# OpenRouter site URL for HTTP-Referer (required for some routes / leaderboards)
+OPENROUTER_SITE_URL = env('OPENROUTER_SITE_URL', default='http://localhost:8000')

@@ -13,4 +13,6 @@ from django.core.wsgi import get_wsgi_application
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
+import config  # noqa: F401 — load Celery app before Django serves requests
+
 application = get_wsgi_application()

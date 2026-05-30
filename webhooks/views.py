@@ -28,14 +28,23 @@ class GitHubWebhookView(APIView):
             return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
         event = request.headers.get("X-GitHub-Event", "")
+        delivery_id = request.headers.get("X-GitHub-Delivery", "")
         payload = request.data  # DRF already parsed JSON
 
-        # ── 2. Only care about pull_request events ─────────────────────────
+        logger.info(
+            "GitHub webhook received: event=%s delivery=%s",
+            event,
+            delivery_id,
+        )
+
+        # ── 2. Only pull_request events ─────────────────────────
         if event != "pull_request":
+            logger.info("Webhook ignored (not pull_request): event=%s", event)
             return Response({"status": "ignored", "event": event})
 
         action = payload.get("action", "")
         if action not in ("opened", "synchronize", "reopened"):
+            logger.info("Webhook ignored (action=%s) — only opened/synchronize/reopened queue Celery", action)
             return Response({"status": "ignored", "action": action})
 
         # ── 3. Extract PR metadata ─────────────────────────────────────────
@@ -63,7 +72,7 @@ class GitHubWebhookView(APIView):
 
         review = Review.objects.create(pull_request=pull_request)
 
-        # ── 4. Push to Celery — return 200 immediately ─────────────────────
+        # ── 4. Push to Celery  ─────────────────────
         task = process_pr_review.delay(
             review_id=str(review.id),
             repo_full_name=repo.full_name,
@@ -76,20 +85,29 @@ class GitHubWebhookView(APIView):
         review.status = Review.Status.RUNNING
         review.save(update_fields=["celery_task_id", "status"])
 
-        logger.info(f"Queued review {review.id} for {repo.full_name}#{pull_request.pr_number}")
-        return Response({"status": "queued", "review_id": str(review.id)})
+        logger.info(
+            "Queued Celery task %s for review %s (%s#%s, action=%s)",
+            task.id,
+            review.id,
+            repo.full_name,
+            pull_request.pr_number,
+            action,
+        )
+        return Response({
+            "status": "queued",
+            "review_id": str(review.id),
+            "celery_task_id": task.id,
+        })
 
     # ── Helpers ────────────────────────────────────────────────────────────
 
     def _verify_signature(self, request) -> bool:
         secret = settings.GITHUB_WEBHOOK_SECRET
-        print(f"Secret: {secret}")
         if not secret:
             logger.error("GITHUB_WEBHOOK_SECRET not set — rejecting all webhooks")
             return False
 
         sig_header = request.headers.get("X-Hub-Signature-256", "")
-        print(f"Signature header: {sig_header}")
         if not sig_header.startswith("sha256="):
             return False
 
@@ -98,7 +116,6 @@ class GitHubWebhookView(APIView):
             request.body,
             hashlib.sha256,
         ).hexdigest()
-        print(f"Expected signature: sha256={expected}")
-
+        
         received = sig_header[len("sha256="):]
         return hmac.compare_digest(expected, received)
