@@ -15,7 +15,7 @@ import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-print(BASE_DIR)
+
 env = environ.Env()
 environ.Env.read_env(BASE_DIR / '.env')
 
@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'analyzer',
     'github_client',
     'dashboard',
+    'accounts',
 ]
 
 MIDDLEWARE = [
@@ -65,7 +66,9 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+                BASE_DIR / 'templates',
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -109,6 +112,18 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+# Where to send users after a successful login
+LOGIN_REDIRECT_URL = '/dashboard/'
+
+# Where to send users when they click logout
+LOGOUT_REDIRECT_URL = '/auth/login/'
+
+# Where to login
+LOGIN_URL = '/auth/login/'
+
+# Where to logout
+LOGOUT_URL = '/auth/logout/'
+
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
@@ -143,6 +158,10 @@ LOGGING = {
         'analyzer': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
     },
 }
+
+
+GITHUB_OAUTH_CLIENT_ID = env("GITHUB_CLIENT_ID")
+GITHUB_OAUTH_CLIENT_SECRET = env("GITHUB_CLIENT_SECRET")
 
 # Celery
 CELERY_BROKER_URL = env('REDIS_URL')

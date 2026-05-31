@@ -1,0 +1,35 @@
+<div class="flex items-center justify-between" 
+     {% if latest_review.status == 'pending' or latest_review.status == 'running' %} 
+     hx-get="{% url 'pr_status_element' pr.id %}" hx-trigger="every 4s" hx-swap="outerHTML" 
+     {% endif %}>
+    <div>
+        {% if latest_review.status == 'completed' %}
+            <a href="{% url 'review_detail' latest_review.id %}" class="text-sm font-medium text-indigo-400 hover:underline hover:text-indigo-300">
+                #{{ pr.pr_number }} — {{ pr.title|default:"Untitled PR" }}
+            </a>
+        {% else %}
+            <p class="text-sm font-medium text-white">#{{ pr.pr_number }} — {{ pr.title|default:"Untitled PR" }}</p>
+        {% endif %}
+        <p class="text-xs text-gray-500">Author: @{{ pr.author }} | Commit: <code class="text-gray-400 bg-gray-800 px-1 rounded">{{ pr.head_sha|slice:":7" }}</code></p>
+    </div>
+    
+    <div>
+        {% if latest_review.status == 'completed' %}
+            <a href="{% url 'review_detail' latest_review.id %}" class="inline-flex items-center rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-1 text-xs font-semibold hover:bg-emerald-500/20 transition">
+                Score: {{ latest_review.health_score }}/100 &rarr;
+            </a>
+        {% elif latest_review.status == 'running' %}
+            <span class="inline-flex items-center rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-1 text-xs font-semibold animate-pulse">
+                ⏳ AI Reviewing...
+            </span>
+        {% elif latest_review.status == 'failed' %}
+            <span class="inline-flex items-center rounded-md bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-1 text-xs font-semibold" title="{{ latest_review.error_message }}">
+                💥 Execution Failed
+            </span>
+        {% else %}
+            <span class="inline-flex items-center rounded-md bg-gray-500/10 text-gray-400 border border-gray-500/20 px-2 py-1 text-xs font-semibold">
+                Queued
+            </span>
+        {% endif %}
+    </div>
+</div>

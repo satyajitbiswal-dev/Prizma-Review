@@ -1,0 +1,116 @@
+{% extends 'dashboard/base.html' %}
+{% block content %}
+<div class="px-4 sm:px-0">
+    <!-- Breadcrumb & Header -->
+    <div class="mb-10">
+        <a href="{% url 'repo_detail' repo.id %}" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            Back to {{ repo.full_name }}
+        </a>
+        <div class="mt-3 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+                <h1 class="font-heading text-2xl font-800 tracking-tight text-white sm:text-3xl">Review for PR #{{ pr.pr_number }}</h1>
+                <p class="text-sm text-gray-400 mt-1">
+                    Title: <span class="text-gray-200 font-medium">{{ pr.title }}</span> &middot; Author: <span class="text-gray-200">@{{ pr.author }}</span>
+                </p>
+            </div>
+            <div class="flex items-center gap-3 bg-white/[0.04] border border-white/[0.06] rounded-xl px-5 py-3 self-start">
+                <span class="text-2xl">
+                    {% if review.health_score >= 80 %}🟢{% elif review.health_score >= 50 %}🟡{% else %}🔴{% endif %}
+                </span>
+                <div>
+                    <span class="block font-heading text-2xl font-900 text-white leading-tight">{{ review.health_score }}/100</span>
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">PR Health Score</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Severity Metric Cards -->
+    <div class="grid grid-cols-1 gap-5 sm:grid-cols-3 mb-10">
+        <div class="overflow-hidden rounded-2xl border border-red-500/10 bg-red-500/[0.04] px-5 py-4">
+            <dt class="truncate text-xs font-bold uppercase tracking-widest text-red-400 flex items-center gap-2">
+                <span>🔴</span> Critical Flaws
+            </dt>
+            <dd class="mt-1 font-heading text-3xl font-900 tracking-tight text-white">{{ severity_counts.critical }}</dd>
+        </div>
+        <div class="overflow-hidden rounded-2xl border border-amber-500/10 bg-amber-500/[0.04] px-5 py-4">
+            <dt class="truncate text-xs font-bold uppercase tracking-widest text-amber-400 flex items-center gap-2">
+                <span>🟡</span> Logic Warnings
+            </dt>
+            <dd class="mt-1 font-heading text-3xl font-900 tracking-tight text-white">{{ severity_counts.warning }}</dd>
+        </div>
+        <div class="overflow-hidden rounded-2xl border border-blue-500/10 bg-blue-500/[0.04] px-5 py-4">
+            <dt class="truncate text-xs font-bold uppercase tracking-widest text-blue-400 flex items-center gap-2">
+                <span>🔵</span> Suggestions
+            </dt>
+            <dd class="mt-1 font-heading text-3xl font-900 tracking-tight text-white">{{ severity_counts.suggestion }}</dd>
+        </div>
+    </div>
+
+    <!-- Section Title -->
+    <h2 class="font-heading text-lg font-700 text-white mb-6 flex items-center gap-2">
+        <span>🔍</span> Detailed Code Defect Ledger
+    </h2>
+    
+    <!-- File-grouped Comments -->
+    <div class="space-y-8">
+        {% for file_path, file_comments in grouped_comments.items %}
+        <div class="overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.03]">
+            <div class="border-b border-white/[0.06] px-6 py-4 flex items-center justify-between bg-white/[0.02]">
+                <h3 class="text-sm font-mono font-bold text-indigo-400 flex items-center gap-2">
+                    📄 {{ file_path }}
+                </h3>
+                <span class="rounded-full bg-white/[0.06] px-2.5 py-0.5 text-xs font-semibold text-gray-400 border border-white/[0.06]">
+                    {{ file_comments|length }} issue{{ file_comments|length|pluralize }}
+                </span>
+            </div>
+
+            <div class="divide-y divide-white/[0.04]">
+                {% for comment in file_comments %}
+                <div class="p-6 space-y-4 hover:bg-white/[0.01] transition-colors">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold tracking-wide uppercase border
+                                {% if comment.severity == 'critical' %}bg-red-500/10 text-red-400 border-red-500/20
+                                {% elif comment.severity == 'warning' %}bg-amber-500/10 text-amber-400 border-amber-500/20
+                                {% else %}bg-blue-500/10 text-blue-400 border-blue-500/20{% endif %}">
+                                {% if comment.severity == 'critical' %}🔴{% elif comment.severity == 'warning' %}🟡{% else %}🔵{% endif %} 
+                                {{ comment.severity }}
+                            </span>
+                            <span class="text-xs text-gray-400 font-mono">
+                                Lines {{ comment.line_start }}–{{ comment.line_end }}
+                            </span>
+                        </div>
+                        
+                        {% if comment.time_complexity_before and comment.time_complexity_after %}
+                        <span class="inline-flex items-center rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-300 px-2.5 py-0.5 text-xs font-mono font-semibold">
+                            Complexity: {{ comment.time_complexity_before }} &rarr; {{ comment.time_complexity_after }}
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    <div class="space-y-1">
+                        <h4 class="text-xs font-bold uppercase tracking-widest text-gray-500">Problem Detected:</h4>
+                        <p class="text-sm text-gray-200 leading-relaxed">{{ comment.issue }}</p>
+                    </div>
+
+                    <div class="rounded-xl bg-[#070b14] border border-white/[0.06] p-4 space-y-1.5">
+                        <h4 class="text-xs font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+                            💡 Recommended Optimization Refactor:
+                        </h4>
+                        <p class="text-sm text-gray-300 leading-relaxed whitespace-pre-line">{{ comment.suggestion }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="rounded-2xl border border-dashed border-white/10 p-16 text-center bg-white/[0.02]">
+            <div class="text-4xl mb-3">🎉</div>
+            <p class="text-sm text-gray-400">Exceptional Code Quality! This review found no algorithm bottlenecks or DSA issues.</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
