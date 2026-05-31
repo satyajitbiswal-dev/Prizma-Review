@@ -7,13 +7,12 @@ from django.utils import timezone
 
 from reviews.models import Review, Comment
 from github_client.gh_client import fetch_pr_diff_chunks
-from analyzer.llm_client import analyze_chunk, OpenRouterAPIError
-from github_client.comment_poster import post_github_review
+from analyzer.llm_client import analyze_chunk
 
 logger = logging.getLogger(__name__)
 
 MAX_COMMENTS = 15
-MAX_PARALLEL_WORKERS = 4  # Production Tuning: Allows concurrent asset queries
+MAX_PARALLEL_WORKERS = 4  
 
 
 @shared_task(bind=True, max_retries=3)
@@ -43,7 +42,7 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
 
         # Step 2: High-Speed Concurrent File Processing Pipeline
         all_issues = []
-        valid_chunks = [c for c in chunks if not c["skipped"]]
+        valid_chunks = [c for c in chunks if not c.get("skipped", False)]
         llm_failures = []
 
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
@@ -52,7 +51,7 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
                     analyze_chunk, 
                     filename=chunk["filename"], 
                     language=chunk["language"], 
-                    patch=chunk["patch"]
+                    patch=chunk.get("patch", "")  # Explicit string fallback guard
                 ): chunk for chunk in valid_chunks
             }
 
@@ -62,14 +61,22 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
                     issues = future.result()
                     if issues:
                         all_issues.extend(issues)
-                except OpenRouterAPIError as exc:
-                    logger.error("OpenRouter rejected chunk %s: %s", chunk_meta["filename"], exc)
-                    llm_failures.append(str(exc))
-                    if exc.status_code in (400, 401, 402, 403):
-                        raise
                 except Exception as exc:
-                    logger.error("Failed analyzing %s: %s", chunk_meta["filename"], exc)
-                    llm_failures.append(f"{chunk_meta['filename']}: {exc}")
+                    # ──  MULTI-PROVIDER EXCEPTION HOOK ────────────────────────
+                    # Capture error messages cleanly regardless of which upstream 
+                    # provider class threw the exception.
+                    error_msg = str(exc)
+                    status_code = getattr(exc, "status_code", None)
+                    
+                    logger.error("Provider failure while analyzing file %s (HTTP %s): %s", 
+                                 chunk_meta["filename"], status_code, error_msg)
+                    
+                    llm_failures.append(f"{chunk_meta['filename']}: {error_msg}")
+                    
+                    # If it's a structural client configuration failure (400, 401, 403),
+                    # abort immediately—retrying won't fix bad credentials.
+                    if status_code in (400, 401, 402, 403):
+                        raise exc
 
         if llm_failures and not all_issues:
             raise RuntimeError("LLM analysis failed for all files. First error: " + llm_failures[0])
@@ -107,12 +114,13 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
         logger.info(f"Review {review_id} complete — Issues logged: {len(all_issues)}, Computed Score: {score}")
 
         # Step 6: Post inline comments to GitHub via direct memory variables
+        from github_client.comment_poster import post_github_review
         post_github_review(
             repo_full_name=repo_full_name,
             pr_number=pr_number,
             installation_id=installation_id,
             head_sha=head_sha,
-            comments=comments_to_create,  # Safely avoids database cache race condition
+            comments=comments_to_create,  # Safely avoids database cache race conditions
             health_score=score,
         )
 

@@ -47,8 +47,8 @@ INSTALLED_APPS = [
     'reviews',
     'analyzer',
     'github_client',
-    'dashboard',
     'accounts',
+    'encrypted_model_fields',
 ]
 
 MIDDLEWARE = [
@@ -190,3 +190,5 @@ LLM_MODEL = env('LLM_MODEL', default='meta-llama/llama-3.3-70b-instruct')
 LLM_PROVIDER = env('LLM_PROVIDER', default='openrouter')
 # OpenRouter site URL for HTTP-Referer (required for some routes / leaderboards)
 OPENROUTER_SITE_URL = env('OPENROUTER_SITE_URL', default='http://localhost:8000')
+
+FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY")
