@@ -19,17 +19,11 @@ class OpenRouterAPIError(Exception):
 class OpenRouterProvider(BaseLLMProvider):
 
     def __init__(self, api_key: str = None, model: str = None):
-        self.api_key = api_key or getattr(settings, "LLM_API_KEY", "").strip()
-        self.model   = model or getattr(settings, "LLM_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+        self.api_key = api_key.strip() if api_key else ""
+        self.model   = model.strip() if model else DEFAULT_MODEL
 
         if not self.api_key:
-            raise OpenRouterAPIError(401, "No OpenRouter API key provided")
-        
-    def _resolve_key(self) -> str:
-        key = getattr(settings, "LLM_API_KEY", "").strip()
-        if not key:
-            raise OpenRouterAPIError(401, "LLM_API_KEY missing from .env")
-        return key
+            raise OpenRouterAPIError(401, "No explicit API key supplied to OpenRouter provider initialization.")
 
     def call_model(self, system_prompt: str, user_prompt: str,
                    retries: int = 3) -> str:
@@ -53,16 +47,16 @@ class OpenRouterProvider(BaseLLMProvider):
         last_exc = None
         for attempt in range(retries):
             try:
-                resp = requests.post(OPENROUTER_URL, json=body,
-                                     headers=headers, timeout=60)
+                resp = requests.post(OPENROUTER_URL, json=body, headers=headers, timeout=60)
 
                 if resp.status_code >= 400:
                     msg = self._parse_error(resp)
-                    logger.error("OpenRouter %s (attempt %s): %s",
-                                 resp.status_code, attempt + 1, msg)
+                    logger.error("OpenRouter Return %s (attempt %s): %s", resp.status_code, attempt + 1, msg)
                     exc = OpenRouterAPIError(resp.status_code, msg)
+                    
                     if resp.status_code in (400, 401, 402, 403):
                         raise exc
+                        
                     last_exc = exc
                     time.sleep(2 ** attempt)
                     continue
@@ -72,13 +66,13 @@ class OpenRouterProvider(BaseLLMProvider):
             except OpenRouterAPIError:
                 raise
             except (KeyError, IndexError) as e:
-                raise OpenRouterAPIError(500, f"Unexpected response: {e}")
+                raise OpenRouterAPIError(500, f"Unexpected response array: {e}")
             except requests.RequestException as e:
-                logger.error("OpenRouter network error (attempt %s): %s", attempt + 1, e)
-                last_exc = e
+                logger.error("OpenRouter network failure (attempt %s): %s", attempt + 1, e)
+                last_exc = OpenRouterAPIError(503, f"Network Failure: {e}")
                 time.sleep(2 ** attempt)
 
-        raise last_exc or OpenRouterAPIError(500, "OpenRouter failed after retries")
+        raise last_exc or OpenRouterAPIError(500, "OpenRouter processing engine exhausted all retry blocks.")
 
     def _parse_error(self, resp: requests.Response) -> str:
         try:

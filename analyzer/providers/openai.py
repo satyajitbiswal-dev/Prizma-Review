@@ -19,17 +19,12 @@ class OpenAIAPIError(Exception):
 class OpenAIProvider(BaseLLMProvider):
 
     def __init__(self, api_key: str = None, model: str = None):
-        self.api_key = api_key or getattr(settings, "OPENAI_API_KEY", "").strip()
-        self.model   = model or getattr(settings, "OPENAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+        """Pure Dependency Injection: Trusts the slot entry provided by the database rotator."""
+        self.api_key = api_key.strip() if api_key else ""
+        self.model   = model.strip() if model else "gpt-4o-mini"
 
         if not self.api_key:
-            raise OpenAIAPIError(401, "No OpenAI API key provided")
-
-    def _resolve_key(self) -> str:
-        key = getattr(settings, "OPENAI_API_KEY", "").strip()
-        if not key:
-            raise OpenAIAPIError(401, "OPENAI_API_KEY missing from .env")
-        return key
+            raise OpenAIAPIError(401, "No explicit API key supplied to OpenAI provider initialization.")
 
     def call_model(self, system_prompt: str, user_prompt: str,
                    retries: int = 3) -> str:
@@ -50,16 +45,18 @@ class OpenAIProvider(BaseLLMProvider):
         last_exc = None
         for attempt in range(retries):
             try:
-                resp = requests.post(OPENAI_URL, json=body,
-                                     headers=headers, timeout=30)
+                resp = requests.post(OPENAI_URL, json=body, headers=headers, timeout=30)
 
                 if resp.status_code >= 400:
                     msg = self._parse_error(resp)
-                    logger.error("OpenAI %s (attempt %s): %s",
-                                 resp.status_code, attempt + 1, msg)
+                    logger.error("OpenAI Endpoint Status %s (attempt %s): %s", resp.status_code, attempt + 1, msg)
+                    
                     exc = OpenAIAPIError(resp.status_code, msg)
-                    if resp.status_code in (400, 401, 403):
+                    
+                    # Intercept hard-failures instantly, including 402 financial constraints
+                    if resp.status_code in (400, 401, 402, 403):
                         raise exc
+                    
                     last_exc = exc
                     time.sleep(2 ** attempt)
                     continue
@@ -69,13 +66,13 @@ class OpenAIProvider(BaseLLMProvider):
             except OpenAIAPIError:
                 raise
             except (KeyError, IndexError) as e:
-                raise OpenAIAPIError(500, f"Unexpected response: {e}")
+                raise OpenAIAPIError(500, f"Malformed Provider API response content: {e}")
             except requests.RequestException as e:
-                logger.error("OpenAI network error (attempt %s): %s", attempt + 1, e)
-                last_exc = e
+                logger.error("OpenAI Transport/Network fault (attempt %s): %s", attempt + 1, e)
+                last_exc = OpenAIAPIError(503, f"Network Transport Failure: {e}")
                 time.sleep(2 ** attempt)
 
-        raise last_exc or OpenAIAPIError(500, "OpenAI failed after retries")
+        raise last_exc or OpenAIAPIError(500, "OpenAI runtime processing pipeline exhausted all retry blocks.")
 
     def _parse_error(self, resp: requests.Response) -> str:
         try:

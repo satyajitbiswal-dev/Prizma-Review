@@ -1,35 +1,29 @@
 import re
 import logging
 import requests
-
+from typing import Any
 from github_client.gh_client import get_installation_token
+from .diff_sanitizer import MAX_CHANGED_LINES
 
 logger = logging.getLogger(__name__)
 
 
-# ── 1. Hunk Parser — line number → diff position ─────────────────────────
-# This is the hardest part. GitHub Review API needs "position" (index in
-# the unified diff) NOT the actual file line number. We build a lookup table.
-
 def build_position_map(patch: str) -> dict[int, int]:
     """
-    Parses a unified diff patch and returns:
-    { actual_file_line_number: diff_position }
-
-    diff_position increments for every line in the diff including
-    hunk headers (@@ lines). GitHub counts from 1.
+    HUNK PARSER: Tracks code modifications line-by-line. 
+    Maps the physical line number to the specific index location within the raw diff patch.
     """
     position_map = {}
-    position = 0       # diff position counter (what GitHub wants)
-    current_line = 0   # actual file line number (what Claude/Gemini gives us)
+    position = 0       # Tracks position in the diff patch (Required by GitHub API)
+    current_line = 0   # Tracks line number in the modified source file
 
     for line in patch.splitlines():
         if line.startswith("@@"):
-            # Parse @@ -old_start,old_count +new_start,new_count @@
+            # Extract target line start coordinate numbers from the unified diff header
             match = re.search(r"\+(\d+)(?:,(\d+))?", line)
             if match:
-                current_line = int(match.group(1)) - 1  # -1 because we increment before use
-            position += 1  # hunk header itself counts as a position
+                current_line = int(match.group(1)) - 1  
+            position += 1  
 
         elif line.startswith("+"):
             current_line += 1
@@ -37,10 +31,9 @@ def build_position_map(patch: str) -> dict[int, int]:
             position_map[current_line] = position
 
         elif line.startswith("-"):
-            position += 1  # removed line — has position but no new line number
+            position += 1  # Deletions move the diff position down but do not affect file line numbers
 
         else:
-            # Context line (unchanged)
             current_line += 1
             position += 1
             position_map[current_line] = position
@@ -48,17 +41,25 @@ def build_position_map(patch: str) -> dict[int, int]:
     return position_map
 
 
-# ── 2. Post GitHub Review with inline comments ────────────────────────────
+def _extract_field(obj, field: str, default: Any = "") -> Any:
+    """
+    HOISTED HELPER: Resolves unstructured fields from either class objects or 
+    JSON dictionaries. Kept at module scope to avoid re-compilation in hot execution loops.
+    """
+    if hasattr(obj, field):
+        return getattr(obj, field)
+    if isinstance(obj, dict):
+        return obj.get(field, default)
+    return default
+
 
 def post_github_review(repo_full_name: str, pr_number: int,
                        installation_id: int, head_sha: str,
-                       comments: list[dict], health_score: int) -> bool:
+                       comments: list[dict], health_score: int,
+                       large_files: list[str] = None) -> bool:
     """
-    Posts a GitHub Pull Request Review with:
-    - Inline comments on flagged lines
-    - A summary comment at the top of the PR
-
-    comments: list of Comment model instances (or dicts with same fields)
+    ORCHESTRATION LAYER: Assembles inline anomalies and posts them back 
+    to the active Pull Request as a single unified GitHub Review collection.
     """
     token = get_installation_token(installation_id)
     headers = {
@@ -67,47 +68,48 @@ def post_github_review(repo_full_name: str, pr_number: int,
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    # ── Fetch patches to build position maps ──────────────────────────────
+    # STEP 1: Fetch fresh patch state profiles directly from GitHub
     files_url = f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}/files"
     resp = requests.get(files_url, headers=headers)
     resp.raise_for_status()
     pr_files = resp.json()
 
-    # Build position map for every file in the PR
-    patch_map = {}  # { filename: { line_number: diff_position } }
+    # STEP 2: Compile position mapping tables for files in this PR
+    patch_map = {}  
     for f in pr_files:
         if f.get("patch"):
             patch_map[f["filename"]] = build_position_map(f["patch"])
 
-    # ── Build inline comment payloads ──────────────────────────────────────
     inline_comments = []
-    for comment in comments:
-        # Abstract extraction helper supporting object and dict footprints safely
-        def get_val(obj, field, default=""):
-            if hasattr(obj, field):
-                return getattr(obj, field)
-            if isinstance(obj, dict):
-                return obj.get(field, default)
-            return default
-        filename = get_val(comment, "file_path") or get_val(comment, "file")
-        line = get_val(comment, "line_start")
-        severity = str(get_val(comment, "severity", "SUGGESTION")).upper()
-        issue = get_val(comment, "issue")
-        suggestion = get_val(comment, "suggestion")
-        complexity_before = get_val(comment, "time_complexity_before") or get_val(comment, "complexity_before")
-        complexity_after = get_val(comment, "time_complexity_after") or get_val(comment, "complexity_after")
+    severity_emoji_map = {"CRITICAL": "🔴", "WARNING": "🟡", "SUGGESTION": "🔵"}
 
-        # Get diff position for this line
+    # STEP 3: Loop over issues and map line numbers to diff positions
+    for comment in comments:
+        filename = _extract_field(comment, "file_path") or _extract_field(comment, "file")
+        line = _extract_field(comment, "line_start")
+        severity = str(_extract_field(comment, "severity", "SUGGESTION")).upper()
+        issue = _extract_field(comment, "issue")
+        suggestion = _extract_field(comment, "suggestion")
+        complexity_before = _extract_field(comment, "time_complexity_before") or _extract_field(comment, "complexity_before")
+        complexity_after = _extract_field(comment, "time_complexity_after") or _extract_field(comment, "complexity_after")
+
+        # Read map to find the required diff position index
         file_positions = patch_map.get(filename, {})
         position = file_positions.get(line)
 
+        # STEP 4: Deflect Out-Of-Bounds Comments
+        # If the line isn't part of the active code diff, skip it to prevent GitHub API errors.
         if position is None:
-            logger.warning(f"No diff position found for {filename}:{line} — skipping")
+            logger.warning(f"No diff position found for {filename}:{line} — bypass comment mapping.")
             continue
 
-        # Format the comment body
-        severity_emoji = {"CRITICAL": "🔴", "WARNING": "🟡", "SUGGESTION": "🔵"}.get(severity, "⚪")
-        body = f"{severity_emoji} **{severity} — DSA Issue**\n\n"
+        # Format markdown string for comment body layout
+        severity_emoji = severity_emoji_map.get(severity, "⚪")
+        category        = str(_extract_field(comment, "category", "DSA")).upper()
+        category_label  = {"DSA": "DSA Issue", "SECURITY": "Security Issue",
+                   "RESOURCE": "Reliability Issue"}.get(category, "Code Issue")
+        body = f"{severity_emoji} **{severity} — {category_label}**\n\n"
+        
         body += f"**Problem:** {issue}\n\n"
         body += f"**Fix:** {suggestion}\n"
         if complexity_before and complexity_after:
@@ -119,59 +121,47 @@ def post_github_review(repo_full_name: str, pr_number: int,
             "body": body,
         })
 
+    # STEP 5: Fallback to standalone issue summary if no lines match
     if not inline_comments:
-        logger.warning("No inline comments could be mapped to diff positions")
-        # Still post summary comment
-        _post_summary_comment(
-            repo_full_name, pr_number, headers, [], health_score
-        )
+        logger.warning("No inline comment tracking lines aligned to diff layouts.")
+        _post_summary_comment(repo_full_name, pr_number, headers, [], health_score)
         return False
 
-    # ── Post the Review ────────────────────────────────────────────────────
+    # STEP 6: Post the complete unified review collection
     review_url = f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}/reviews"
     review_payload = {
         "commit_id": head_sha,
-        "body": _build_summary_body(inline_comments, health_score),
-        "event": "COMMENT",   # COMMENT = no approve/reject, just comments
+        "body": _build_summary_body(inline_comments, health_score, large_files),
+        "event": "COMMENT",   
         "comments": inline_comments,
     }
 
     resp = requests.post(review_url, json=review_payload, headers=headers)
     resp.raise_for_status()
-
-    logger.info(
-        f"Posted review on {repo_full_name}#{pr_number} "
-        f"with {len(inline_comments)} inline comments"
-    )
     return True
 
 
-# ── 3. Summary body (top of PR review) ───────────────────────────────────
-
-def _build_summary_body(comments: list[dict], health_score: int) -> str:
-    critical   = sum(1 for c in comments if "CRITICAL" in c["body"])
-    warning    = sum(1 for c in comments if "WARNING"  in c["body"])
+def _build_summary_body(comments: list[dict], health_score: int, large_files: list[str] = None) -> str:
+    """Constructs the high-level summary overview markdown block."""
+    critical   = sum(1 for c in comments if "CRITICAL"   in c["body"])
+    warning    = sum(1 for c in comments if "WARNING"    in c["body"])
     suggestion = sum(1 for c in comments if "SUGGESTION" in c["body"])
 
     score_emoji = "🟢" if health_score >= 80 else "🟡" if health_score >= 50 else "🔴"
 
-    return f"""## 🤖 PrizmReview — AI Code Review
-
-{score_emoji} **PR Health Score: {health_score}/100**
-
-| Severity | Count |
-|----------|-------|
-| 🔴 Critical | {critical} |
-| 🟡 Warning | {warning} |
-| 🔵 Suggestion | {suggestion} |
-
-*Powered by PrizmReview — DSA-focused AI code review*
-"""
+    body = f"""## 🤖 PrizmReview — AI Code Review\n\n{score_emoji} **PR Health Score: {health_score}/100**\n\n| Severity | Count |\n|----------|-------|\n| 🔴 Critical | {critical} |\n| 🟡 Warning | {warning} |\n| 🔵 Suggestion | {suggestion} |\n"""
+    
+    # Inform users if files were truncated due to high volume limits
+    if large_files:
+        files_list = "\n".join(f"  - `{f}`" for f in large_files)
+        body += f"\n> ⚠️ **Partial Review Added** — The following tracks exceeded {MAX_CHANGED_LINES} changed lines and were split safely at hunk markers:\n{files_list}\n"
+        
+    body += "\n\n*Powered by PrizmReview — DSA-focused AI code review*"
+    return body
 
 
-def _post_summary_comment(repo_full_name, pr_number,
-                           headers, comments, health_score):
-    """Fallback — post just a top-level comment if no inline comments."""
+def _post_summary_comment(repo_full_name, pr_number, headers, comments, health_score):
+    """Fallback utility used when comments can't map to specific line modifications."""
     url = f"https://api.github.com/repos/{repo_full_name}/issues/{pr_number}/comments"
     body = _build_summary_body(comments, health_score)
     requests.post(url, json={"body": body}, headers=headers)

@@ -177,11 +177,11 @@ GITHUB_PRIVATE_KEY_PATH = env('GITHUB_PRIVATE_KEY_PATH')
 
 # Gemini
 GEMINI_API_KEY = env('GEMINI_API_KEY')
-GEMINI_MODEL = env('GEMINI_MODEL', default='gemini-1.5-flash')
+GEMINI_MODEL = env('GEMINI_MODEL', default='gemma-4-26b-a4b-it')
 
 # OpenAI
 OPENAI_API_KEY = env('OPENAI_API_KEY', default='')
-OPENAI_MODEL = env('OPENAI_MODEL', default='gpt-4o')
+OPENAI_MODEL = env('OPENAI_MODEL', default='gpt-4o-mini')
 
 # OpenRouter / LLM (use django-environ so Celery workers load .env like manage.py)
 OPENROUTER_API_KEY = env('OPENROUTER_API_KEY', default='')

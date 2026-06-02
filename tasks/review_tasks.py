@@ -115,13 +115,18 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
 
         # Step 6: Post inline comments to GitHub via direct memory variables
         from github_client.comment_poster import post_github_review
+        large_files = [
+            c["filename"] for c in chunks
+            if c.get("is_large") and not c["skipped"]
+        ]
         post_github_review(
             repo_full_name=repo_full_name,
             pr_number=pr_number,
             installation_id=installation_id,
             head_sha=head_sha,
-            comments=comments_to_create,  # Safely avoids database cache race conditions
+            comments=comments_to_create,
             health_score=score,
+            large_files=large_files,
         )
 
     except Exception as exc:

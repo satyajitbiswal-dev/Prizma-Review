@@ -1,4 +1,5 @@
 import time
+import random
 import logging
 import requests
 from django.conf import settings
@@ -7,9 +8,9 @@ from analyzer.providers.base import BaseLLMProvider
 logger = logging.getLogger(__name__)
 
 GEMINI_BASE_URL  = "https://generativelanguage.googleapis.com/v1beta/models"
-DEFAULT_MODEL    = "gemini-2.0-flash"
+# Default fallback to Google's specialized open weight instruction variant
+DEFAULT_MODEL    = "gemma-4-26b-a4b-it"
 
-# Force Gemini to return structured JSON matching your schema
 RESPONSE_SCHEMA = {
     "type": "array",
     "items": {
@@ -38,23 +39,14 @@ class GeminiAPIError(Exception):
 class GeminiProvider(BaseLLMProvider):
 
     def __init__(self, api_key: str = None, model: str = None):
-        # Accept key directly (from rotator) OR fall back to settings
-        self.api_key = api_key or getattr(settings, "GEMINI_API_KEY", "").strip()
-        self.model   = model or getattr(settings, "GEMINI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+        self.api_key = api_key.strip() if api_key else ""
+        self.model   = model.strip() if model else DEFAULT_MODEL
 
         if not self.api_key:
-            raise GeminiAPIError(401, "No Gemini API key provided")
+            raise GeminiAPIError(401, "No explicit API key supplied to Gemini provider initialization.")
 
-    def _resolve_key(self) -> str:
-        key = getattr(settings, "GEMINI_API_KEY", "").strip()
-        if not key:
-            raise GeminiAPIError(401, "GEMINI_API_KEY missing from .env")
-        return key
-
-    def call_model(self, system_prompt: str, user_prompt: str,
-                   retries: int = 3) -> str:
-
-        # Always build URL cleanly — never double "models/"
+    def call_model(self, system_prompt: str, user_prompt: str, retries: int = 3) -> str:
+        # Standardize endpoint URI mapping structures
         model_path = self.model if self.model.startswith("models/") else f"models/{self.model}"
         url = f"{GEMINI_BASE_URL.rstrip('/')}/{model_path.lstrip('models/')}:generateContent"
 
@@ -78,20 +70,40 @@ class GeminiProvider(BaseLLMProvider):
             },
         }
 
+        base_delay = 1.5  
         last_exc = None
+
         for attempt in range(retries):
             try:
                 resp = requests.post(url, json=body, headers=headers, timeout=30)
 
                 if resp.status_code >= 400:
                     msg = self._parse_error(resp)
-                    logger.error("Gemini %s (attempt %s): %s",
-                                 resp.status_code, attempt + 1, msg)
+                    msg_lower = msg.lower()
+                    
+                    logger.error("Gemini API return code %s (attempt %s): %s", resp.status_code, attempt + 1, msg)
                     exc = GeminiAPIError(resp.status_code, msg)
 
-                    # Don't retry auth/bad-request errors
+                    # Hard error deflection
                     if resp.status_code in (400, 401, 403):
                         raise exc
+
+                    # STEP 1: Auto-Recover Transient 503 Server Overload Bounds via Retry Backoff Loops
+                    # Intercepts high-demand spikes on popular models like Gemma 26B without throwing errors upwards
+                    if resp.status_code == 503 or "demand" in msg_lower:
+                        if attempt == retries - 1:
+                            raise exc
+                        
+                        # Apply randomized backoff math: base * 2^(attempt-1) + jitter decimals
+                        jitter = random.uniform(0.1, 0.4)
+                        sleep_duration = (base_delay * (2 ** attempt)) + jitter
+                        
+                        logger.warning(
+                            f"Gemini cluster overloaded (503). Initiating Thread Backoff Jitter. "
+                            f"Attempt {attempt+1}/{retries} sleeping for {sleep_duration:.2f}s"
+                        )
+                        time.sleep(sleep_duration)
+                        continue
 
                     last_exc = exc
                     time.sleep(2 ** attempt)
@@ -103,14 +115,13 @@ class GeminiProvider(BaseLLMProvider):
             except GeminiAPIError:
                 raise
             except (KeyError, IndexError) as e:
-                logger.error("Unexpected Gemini response structure: %s", e)
-                raise GeminiAPIError(500, f"Unexpected response: {e}")
+                raise GeminiAPIError(500, f"Malformed Provider response structure layout: {e}")
             except requests.RequestException as e:
-                logger.error("Gemini network error (attempt %s): %s", attempt + 1, e)
-                last_exc = e
+                logger.error("Gemini network transport layer error (attempt %s): %s", attempt + 1, e)
+                last_exc = GeminiAPIError(503, f"Transport Exception: {e}")
                 time.sleep(2 ** attempt)
 
-        raise last_exc or GeminiAPIError(500, "Gemini failed after retries")
+        raise last_exc or GeminiAPIError(500, "Gemini processing engine exhausted all structural retries.")
 
     def _parse_error(self, resp: requests.Response) -> str:
         try:

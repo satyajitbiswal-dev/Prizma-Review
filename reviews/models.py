@@ -68,7 +68,7 @@ class Comment(models.Model):
     class Category(models.TextChoices):
         DSA      = "dsa",      "DSA / Algorithm"
         SECURITY = "security", "Security"
-        STYLE    = "style",    "Style"
+        RESOURCE = "resource", "Resource / Reliability"
         OTHER    = "other",    "Other"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

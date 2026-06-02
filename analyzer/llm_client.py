@@ -81,27 +81,27 @@ def analyze_chunk(filename: str, language: str,
     }
 
     user_prompt  = build_user_prompt(filename, language, patch, total_lines)
-    max_attempts = 6  # enough to try all 3 tiers with 2 keys each
+    max_attempts = 6  
     last_error   = None
 
     for attempt in range(max_attempts):
         try:
             slot = acquire_healthy_key_slot()
         except RuntimeError as e:
-            logger.error(f"Key rotator exhausted: {e}")
-            return []  # Graceful degradation — don't crash the task
+            logger.error(f"Key rotator completely exhausted: {e}")
+            return []  # Graceful fallback: skip execution, don't crash core Celery worker processes
 
-        provider_class = PROVIDER_MAP.get(slot.provider, OpenRouterProvider)
+        provider_class = PROVIDER_MAP.get(slot.provider, GeminiProvider)
 
         try:
-            # ✅ Key passed directly — no settings mutation, thread-safe
+            # Enforce dynamic parameters directly from the claimed database row slot
             provider = provider_class(
                 api_key=slot.key_value,
                 model=slot.model_override or None,
             )
             raw = provider.call_model(DSA_SYSTEM_PROMPT, user_prompt)
 
-            # Success — update call counter
+            # Success tracking increment
             LLMKeyRingSlot.objects.filter(id=slot.id).update(
                 total_calls_handled=models.F("total_calls_handled") + 1
             )
@@ -113,19 +113,21 @@ def analyze_chunk(filename: str, language: str,
 
         except Exception as exc:
             status_code = getattr(exc, "status_code", None)
+            # Safely read error message details generated inside the providers
+            error_message = str(exc)
             last_error  = exc
 
             if status_code:
-                penalize_slot(slot, status_code)
+                # STEP 1: Forward status code and error messages to look for credit limits
+                penalize_slot(slot, status_code, error_message=error_message)
 
-            if status_code in (400, 401, 403):
-                # Config error — don't retry same provider type
-                logger.error(f"Hard error {status_code} on slot#{slot.id} — skipping provider")
+            if status_code in (400, 401, 402, 403):
+                logger.error(f"Hard structural outage ({status_code}) on slot#{slot.id} — aborting provider path.")
 
             logger.warning(
                 f"Attempt {attempt+1}/{max_attempts} failed "
                 f"[{slot.provider} slot#{slot.id}]: {exc}"
             )
 
-    logger.error(f"All {max_attempts} attempts failed for {filename}")
+    logger.error(f"All structural backup attempts ({max_attempts}) failed for {filename}")
     return []
