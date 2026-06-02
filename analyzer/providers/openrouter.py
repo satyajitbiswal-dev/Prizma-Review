@@ -32,7 +32,7 @@ class OpenRouterProvider(BaseLLMProvider):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type":  "application/json",
             "HTTP-Referer":  site_url,
-            "X-Title":       "PrizmReview",
+            "X-Title":       "prizmareview",
         }
         body = {
             "model":       self.model,

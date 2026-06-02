@@ -7,12 +7,14 @@ import json
 import logging
 
 from django.conf import settings
+import requests
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework import status
+from rest_framework import request, status
 
 from reviews.models import Repo,PullRequest,Review
 from tasks.review_tasks import process_pr_review
+from github_client.status_poster import post_commit_status_pending
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,10 @@ class GitHubWebhookView(APIView):
             return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
         event = request.headers.get("X-GitHub-Event", "")
+        # route issue_comment events to separate view 
+        if event == "issue_comment": 
+            return GitHubCommentWebhookView().post(request)
+        
         delivery_id = request.headers.get("X-GitHub-Delivery", "")
         payload = request.data  # DRF already parsed JSON
 
@@ -71,6 +77,15 @@ class GitHubWebhookView(APIView):
         )
 
         review = Review.objects.create(pull_request=pull_request)
+
+        # Add github status 
+        try:
+            post_commit_status_pending(
+                repo_full_name=repo.full_name, head_sha=pull_request.head_sha,
+                installation_id=repo.installation_id,
+            )
+        except Exception as e:
+            logger.warning(f"Could not post pending status: {e}")
 
         # ── 4. Push to Celery  ─────────────────────
         task = process_pr_review.delay(
@@ -119,3 +134,116 @@ class GitHubWebhookView(APIView):
         
         received = sig_header[len("sha256="):]
         return hmac.compare_digest(expected, received)
+    
+
+class GitHubCommentWebhookView(APIView):
+    authentication_classes = []
+    permission_classes     = []
+
+    TRIGGER_PHRASES = (
+        "prizmareview: recheck",
+        "prizmareview recheck",
+        "/recheck",
+    )
+
+    def post(self, request):
+        if not self._verify_signature(request):
+            return Response({"error": "invalid signature"}, status=401)
+
+        event = request.headers.get("X-GitHub-Event", "")
+        if event != "issue_comment":
+            return Response({"status": "ignored"})
+
+        payload = request.data
+        action  = payload.get("action", "")
+
+        # Only react to new comments
+        if action != "created":
+            return Response({"status": "ignored"})
+
+        # Only react to PR comments (not issue comments)
+        if not payload.get("issue", {}).get("pull_request"):
+            return Response({"status": "ignored"})
+
+        comment_body = payload.get("comment", {}).get("body", "").lower().strip()
+        if not any(trigger in comment_body for trigger in self.TRIGGER_PHRASES):
+            return Response({"status": "ignored", "reason": "not a trigger phrase"})
+
+        # Extract PR info
+        repo_data    = payload["repository"]
+        pr_number    = payload["issue"]["number"]
+        commenter    = payload["comment"]["user"]["login"]
+
+        try:
+            repo = Repo.objects.get(github_repo_id=repo_data["id"])
+        except Repo.DoesNotExist:
+            return Response({"error": "repo not found"}, status=404)
+
+        try:
+            pull_request = PullRequest.objects.get(
+                repo=repo, pr_number=pr_number
+            )
+        except PullRequest.DoesNotExist:
+            return Response({"error": "PR not found"}, status=404)
+
+        # Create fresh review
+        review = Review.objects.create(pull_request=pull_request)
+
+        task = process_pr_review.delay(
+            review_id=str(review.id),
+            repo_full_name=repo.full_name,
+            pr_number=pull_request.pr_number,
+            installation_id=repo.installation_id,
+            head_sha=pull_request.head_sha,
+        )
+
+        review.celery_task_id = task.id
+        review.status         = Review.Status.RUNNING
+        review.save(update_fields=["celery_task_id", "status"])
+
+        # React to the comment with 👀 so user knows it worked
+        self._react_to_comment(
+            repo_full_name=repo.full_name,
+            comment_id=payload["comment"]["id"],
+            installation_id=repo.installation_id,
+        )
+
+        logger.info(
+            f"Recheck triggered by @{commenter} "
+            f"for {repo.full_name}#{pr_number}"
+        )
+        return Response({"status": "queued", "review_id": str(review.id)})
+
+    def _verify_signature(self, request) -> bool:
+        # Reuse same logic from GitHubWebhookView
+        secret     = settings.GITHUB_WEBHOOK_SECRET
+        sig_header = request.headers.get("X-Hub-Signature-256", "")
+        if not sig_header.startswith("sha256="):
+            return False
+        import hmac, hashlib
+        expected = hmac.new(
+            secret.encode(), request.body, hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(expected, sig_header[7:])
+
+    def _react_to_comment(self, repo_full_name: str,
+                           comment_id: int, installation_id: int):
+        """Post 👀 reaction so user knows the bot saw the command."""
+        try:
+            from github_client.gh_client import get_installation_token
+            token = get_installation_token(installation_id)
+            url   = (
+                f"https://api.github.com/repos/{repo_full_name}"
+                f"/issues/comments/{comment_id}/reactions"
+            )
+            requests.post(
+                url,
+                json={"content": "eyes"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                },
+                timeout=5,
+            )
+        except Exception as e:
+            logger.warning(f"Could not react to comment: {e}")

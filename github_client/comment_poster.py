@@ -149,14 +149,14 @@ def _build_summary_body(comments: list[dict], health_score: int, large_files: li
 
     score_emoji = "🟢" if health_score >= 80 else "🟡" if health_score >= 50 else "🔴"
 
-    body = f"""## 🤖 PrizmReview — AI Code Review\n\n{score_emoji} **PR Health Score: {health_score}/100**\n\n| Severity | Count |\n|----------|-------|\n| 🔴 Critical | {critical} |\n| 🟡 Warning | {warning} |\n| 🔵 Suggestion | {suggestion} |\n"""
+    body = f"""## 🤖 prizmareview — AI Code Review\n\n{score_emoji} **PR Health Score: {health_score}/100**\n\n| Severity | Count |\n|----------|-------|\n| 🔴 Critical | {critical} |\n| 🟡 Warning | {warning} |\n| 🔵 Suggestion | {suggestion} |\n"""
     
     # Inform users if files were truncated due to high volume limits
     if large_files:
         files_list = "\n".join(f"  - `{f}`" for f in large_files)
         body += f"\n> ⚠️ **Partial Review Added** — The following tracks exceeded {MAX_CHANGED_LINES} changed lines and were split safely at hunk markers:\n{files_list}\n"
         
-    body += "\n\n*Powered by PrizmReview — DSA-focused AI code review*"
+    body += "\n\n*Powered by prizmareview — DSA-focused AI code review*"
     return body
 
 

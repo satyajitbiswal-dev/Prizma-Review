@@ -8,6 +8,8 @@ from django.utils import timezone
 from reviews.models import Review, Comment
 from github_client.gh_client import fetch_pr_diff_chunks
 from analyzer.llm_client import analyze_chunk
+from github_client.status_poster import post_commit_status, post_commit_status_error
+from analyzer.repo_config import fetch_repo_config, should_skip_path
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +41,32 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
         if not chunks:
             _mark_complete(review, score=100)
             return
+        # ── Fetch repo config (.prizmareview.yml or defaults) ──────────────────
+        config = fetch_repo_config(
+            repo_full_name=repo_full_name,
+            installation_id=installation_id,
+            head_sha=head_sha,
+        )
+        logger.info(
+            f"Config loaded — threshold={config.fail_threshold} "
+            f"max_comments={config.max_comments} "
+            f"skip_categories={config.skip_categories}"
+        )
 
         # Step 2: High-Speed Concurrent File Processing Pipeline
+        
+        chunks = [
+            c for c in chunks
+            if not should_skip_path(c["filename"], config.skip_paths)
+        ]
+
+        if config.language_focus:
+            chunks = [
+                c for c in chunks
+                if c["language"] in config.language_focus or c.get("skipped", False)
+            ]
+
+        # NOW build the valid_chunks list from the clean, filtered chunks list
         all_issues = []
         valid_chunks = [c for c in chunks if not c.get("skipped", False)]
         llm_failures = []
@@ -85,7 +111,15 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
         if len(chunks) > 20:
             all_issues = [i for i in all_issues if i["severity"] in ("CRITICAL", "WARNING")]
 
-        all_issues = all_issues[:MAX_COMMENTS]
+        # Filter skip_categories from config
+        if config.skip_categories:
+            all_issues = [
+                i for i in all_issues
+                if i.get("category", "DSA").upper() not in config.skip_categories
+            ]
+
+        # Use config max_comments instead of hardcoded MAX_COMMENTS
+        all_issues = all_issues[:config.max_comments]
 
         # Step 4: Batch Database Inserts
         comments_to_create = [
@@ -128,6 +162,19 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
             health_score=score,
             large_files=large_files,
         )
+        # ── Step 7: Post commit status ────────────────────────────────────────
+        try:
+            post_commit_status(
+                repo_full_name=repo_full_name,
+                head_sha=head_sha,
+                installation_id=installation_id,
+                health_score=score,
+                issue_count=len(all_issues),
+                fail_threshold=config.fail_threshold,
+            )
+        except Exception as status_err:
+            logger.error(f"⚠️ Non-blocking warning: Failed to submit commit status metric: {status_err}")
+            
 
     except Exception as exc:
         if self.request.retries < self.max_retries:
@@ -141,6 +188,15 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
             review.error_message = str(exc)
             review.save(update_fields=["status", "error_message"])
         except Review.DoesNotExist:
+            pass
+        try:
+            post_commit_status_error(
+                repo_full_name=repo_full_name,
+                head_sha=head_sha,
+                installation_id=installation_id,
+                reason=str(exc),
+            )
+        except Exception:
             pass
         raise exc
 
