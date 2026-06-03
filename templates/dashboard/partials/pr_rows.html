@@ -1,0 +1,22 @@
+{% for pr in pull_requests %}
+    {% with latest_review=pr.reviews.first %} 
+        {% if forloop.last and pull_requests.has_next %}
+        <li class="px-6 py-4 hover:bg-white/[0.02] transition-colors flex flex-col gap-4" id="load-more-row">
+            {% include 'dashboard/partials/pr_row_status.html' %}
+            
+            <div class="flex justify-end pt-2 border-t border-white/[0.02]">
+                <button hx-get="?page={{ pull_requests.next_page_number }}" 
+                        hx-target="#load-more-row" 
+                        hx-swap="outerHTML"
+                        class="rounded-lg bg-indigo-600/80 hover:bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-all shadow-sm">
+                    Load More PRs
+                </button>
+            </div>
+        </li>
+        {% else %}
+        <li class="px-6 py-4 hover:bg-white/[0.02] transition-colors">
+            {% include 'dashboard/partials/pr_row_status.html' %}
+        </li>
+        {% endif %}
+    {% endwith %}
+{% endfor %}

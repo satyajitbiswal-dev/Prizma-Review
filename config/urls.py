@@ -18,9 +18,11 @@ from django.contrib import admin
 from django.urls import path
 from django.urls import include
 from django.views.generic import RedirectView
+import os
+SECRET_ADMIN_URL = os.getenv("SECRET_ADMIN_URL")
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path(f'{SECRET_ADMIN_URL}/', admin.site.urls),
     
     # Hooks up /auth/, /auth/login/, /auth/github/callback/, /auth/logout/
     path('auth/', include('accounts.urls')),

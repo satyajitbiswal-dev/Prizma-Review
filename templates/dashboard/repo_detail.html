@@ -1,50 +1,88 @@
 {% extends 'dashboard/base.html' %}
 {% block content %}
 <div class="px-4 sm:px-0">
-    <!-- Breadcrumb & Header -->
-    <div class="mb-10">
+    <div class="mb-6">
         <a href="{% url 'dashboard_home' %}" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             Back to Fleet
         </a>
         <h1 class="mt-3 font-heading text-2xl font-800 tracking-tight text-white sm:text-3xl">{{ repo.full_name }}</h1>
-        <p class="mt-1 text-sm text-gray-400">
-            Performance Snapshot Rank: 
-            <span class="font-heading font-700 {% if avg_score >= 80 %}text-emerald-400{% elif avg_score >= 50 %}text-amber-400{% else %}text-red-400{% endif %}">
-                {{ avg_score }}/100
-            </span>
-        </p>
     </div>
 
-    <!-- PR Table Card -->
+    {% if historical_scores %}
+    <div class="mb-8 overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.03]">
+        <div class="border-b border-white/[0.06] px-6 py-3 flex items-center justify-between">
+            <h3 class="font-heading text-xs font-700 uppercase tracking-wider text-gray-400 flex items-center gap-2">
+                <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                </svg>
+                Health Score Trend (Most Recent 10 PRs)
+            </h3>
+        </div>
+        <div class="p-4 bg-slate-950/40">
+            <canvas id="scoreChart" height="50"></canvas> 
+        </div>
+    </div>
+    {% endif %}
+
     <div class="overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.03]">
         <div class="border-b border-white/[0.06] px-6 py-5 flex items-center justify-between">
             <h3 class="font-heading text-base font-700 text-white flex items-center gap-2">
                 <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
                 Pull Request Execution Log
             </h3>
-            <span class="text-xs font-medium text-gray-500">{{ pull_requests|length }} PR{{ pull_requests|length|pluralize }}</span>
         </div>
-        <ul role="list" class="divide-y divide-white/[0.04]">
-            {% for pr in pull_requests %}
-            <li class="px-6 py-4 hover:bg-white/[0.02] transition-colors" id="pr-row-{{ pr.id }}" hx-get="{% url 'pr_status_element' pr.id %}" hx-trigger="load, every 5s" hx-swap="this">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm font-medium text-white">#{{ pr.pr_number }} — {{ pr.title }}</p>
-                        <p class="text-xs text-gray-500">Author: @{{ pr.author }}</p>
-                    </div>
-                    <span class="inline-flex items-center rounded-md bg-gray-500/10 text-gray-400 border border-gray-500/20 px-2 py-1 text-xs font-semibold animate-pulse">
-                        Syncing status…
-                    </span>
-                </div>
-            </li>
-            {% empty %}
-            <li class="px-6 py-16 text-center">
-                <div class="text-3xl mb-3">🔍</div>
-                <p class="text-sm text-gray-500">No pull requests processed for this repo yet.</p>
-            </li>
-            {% endfor %}
+        
+        <ul role="list" id="pr-list-container" class="divide-y divide-white/[0.04]">
+            {% include 'dashboard/partials/pr_rows.html' %}
         </ul>
     </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+{% if historical_scores %}
+(function() {
+    const scores  = {{ historical_scores|safe }};
+    const labels  = scores.map((_, i) => `PR ${i + 1}`);
+    const colors  = scores.map(s => s >= 80 ? "#34d399" : s >= 50 ? "#fbbf24" : "#f87171");
+
+    new Chart(document.getElementById("scoreChart"), {
+        type: "line",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Health Score",
+                data: scores,
+                borderColor: "#6366f1",
+                backgroundColor: "rgba(99, 102, 241, 0.02)",
+                borderWidth: 2,
+                pointBackgroundColor: colors,
+                pointBorderColor: colors,
+                pointRadius: 4,
+                tension: 0.25,
+                fill: true,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    min: 0,
+                    max: 100,
+                    ticks: { color: "#4b5563", stepSize: 50 },
+                    grid: { color: "rgba(255,255,255,0.02)" }
+                },
+                x: {
+                    ticks: { color: "#4b5563" },
+                    grid: { display: false }
+                }
+            }
+        }
+    });
+})();
+{% endif %}
+</script>
 {% endblock %}

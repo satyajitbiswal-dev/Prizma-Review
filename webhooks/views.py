@@ -12,11 +12,67 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import request, status
 
-from reviews.models import Repo,PullRequest,Review
+from reviews.models import Repo, PullRequest, Review
 from tasks.review_tasks import process_pr_review
 from github_client.status_poster import post_commit_status_pending
+from github_client.installations import (
+    upsert_repo,
+    deactivate_repo,
+    sync_installation_repos,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def handle_installation_event(payload: dict) -> Response:
+    """GitHub App installed, updated, or removed."""
+    action = payload.get("action", "")
+    installation = payload.get("installation", {})
+    installation_id = installation.get("id")
+    account_login = (installation.get("account") or {}).get("login", "")
+
+    if action == "deleted":
+        if installation_id:
+            Repo.objects.filter(installation_id=installation_id).update(is_active=False)
+        logger.info("Installation removed: %s", installation_id)
+        return Response({"status": "installation_deleted"})
+
+    if action in ("created", "new_permissions_accepted"):
+        repos = payload.get("repositories") or []
+        if repos:
+            for repo_data in repos:
+                upsert_repo(repo_data, installation_id, account_login)
+        elif installation_id:
+            sync_installation_repos(installation_id, account_login)
+        logger.info(
+            "Installation %s for @%s — synced %s repo(s)",
+            action,
+            account_login,
+            len(repos) or "all",
+        )
+        return Response({"status": "installation_synced", "action": action})
+
+    return Response({"status": "ignored", "action": action})
+
+
+def handle_installation_repositories_event(payload: dict) -> Response:
+    """Repos added or removed from an existing installation."""
+    action = payload.get("action", "")
+    installation = payload.get("installation", {})
+    installation_id = installation.get("id")
+    account_login = (installation.get("account") or {}).get("login", "")
+
+    if action == "added":
+        for repo_data in payload.get("repositories_added") or []:
+            upsert_repo(repo_data, installation_id, account_login)
+        return Response({"status": "repos_added"})
+
+    if action == "removed":
+        for repo_data in payload.get("repositories_removed") or []:
+            deactivate_repo(repo_data["id"])
+        return Response({"status": "repos_removed"})
+
+    return Response({"status": "ignored", "action": action})
 
 
 class GitHubWebhookView(APIView):
@@ -30,18 +86,23 @@ class GitHubWebhookView(APIView):
             return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
         event = request.headers.get("X-GitHub-Event", "")
-        # route issue_comment events to separate view 
-        if event == "issue_comment": 
+        if event == "issue_comment":
             return GitHubCommentWebhookView().post(request)
-        
+
         delivery_id = request.headers.get("X-GitHub-Delivery", "")
-        payload = request.data  # DRF already parsed JSON
+        payload = request.data
 
         logger.info(
             "GitHub webhook received: event=%s delivery=%s",
             event,
             delivery_id,
         )
+
+        if event == "installation":
+            return handle_installation_event(payload)
+
+        if event == "installation_repositories":
+            return handle_installation_repositories_event(payload)
 
         # ── 2. Only pull_request events ─────────────────────────
         if event != "pull_request":
@@ -57,11 +118,18 @@ class GitHubWebhookView(APIView):
         pr_data   = payload["pull_request"]
         repo_data = payload["repository"]
 
-        repo, _ = Repo.objects.get_or_create(
+        installation = payload.get("installation") or {}
+        owner_login = (
+            (repo_data.get("owner") or {}).get("login")
+            or (installation.get("account") or {}).get("login", "")
+        )
+        repo, _ = Repo.objects.update_or_create(
             github_repo_id=repo_data["id"],
             defaults={
-                "full_name":       repo_data["full_name"],
-                "installation_id": payload["installation"]["id"],
+                "full_name": repo_data["full_name"],
+                "installation_id": installation["id"],
+                "owner_login": owner_login,
+                "is_active": True,
             },
         )
 

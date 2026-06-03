@@ -126,8 +126,8 @@ DO NOT FLAG
 ════════════════════════════════════════════
 OUTPUT FORMAT — STRICT JSON ONLY
 ════════════════════════════════════════════
-
 Return a JSON array. No markdown. No explanation. No preamble. Just the array.
+IMPORTANT: Inside JSON strings, use \\n for line breaks (never raw newline characters inside quotes).
 
 [
   {
@@ -135,43 +135,28 @@ Return a JSON array. No markdown. No explanation. No preamble. Just the array.
     "line_start": 12,
     "line_end": 18,
     "severity": "CRITICAL",
-    "category": "SECURITY",
-    "subcategory": "secrets",
-    "issue": "Hardcoded API key assigned directly to variable — visible in version control forever",
-    "suggestion": "Move to environment variable: API_KEY = os.environ.get('API_KEY'). Add to .env and .gitignore.",
-    "complexity_before": "",
-    "complexity_after": "",
-    "pattern": "hardcoded_secret"
-  },
-  {
-    "file": "path/to/file.py",
-    "line_start": 34,
-    "line_end": 36,
-    "severity": "CRITICAL",
-    "category": "SECURITY",
-    "subcategory": "sql_injection",
-    "issue": "Raw string formatting in SQL query — user input flows directly into query string",
-    "suggestion": "Use parameterized query: cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))",
-    "complexity_before": "",
-    "complexity_after": "",
-    "pattern": "sql_injection"
-  },
-  {
-    "file": "path/to/file.py",
-    "line_start": 55,
-    "line_end": 61,
-    "severity": "CRITICAL",
     "category": "DSA",
     "subcategory": "nested_loop",
-    "issue": "O(n²) nested loop — outer iterates users, inner searches list each time",
-    "suggestion": "Build a set/dict once before the loop. Reduces to O(n).",
+    "issue": "O(n²) nested loop — outer loop iterates all users, inner loop searches list each time",
+    "suggestion": "Replace inner list search with a dict/set built once before the loop. Reduces O(n²) to O(n).",
     "complexity_before": "O(n²)",
     "complexity_after": "O(n)",
-    "pattern": "nested_loop"
+    "pattern": "nested_loop",
+    "fixed_code": {
+      "before": "for user in users:\n    if user in target_list:\n        result.append(user)",
+      "after": "target_set = set(target_list)\nfor user in users:\n    if user in target_set:\n        result.append(user)"
+    }
   }
 ]
 
-If no issues found in any category, return exactly: []
+## RULES FOR fixed_code:
+- "before": the exact bad code from the diff (2-6 lines max)
+- "after": the corrected version of those exact lines
+- Keep it SHORT and focused — only the lines that need changing
+- For security issues (hardcoded secrets): show the pattern, not the actual secret value
+- If fix is too complex to show in 6 lines, set fixed_code to null
+
+If no issues found, return exactly: []
 """
 
 
@@ -198,7 +183,7 @@ Check ALL three categories:
 2. Security vulnerabilities (secrets, injection, auth, crypto, input validation)
 3. Resource and reliability issues (leaks, error handling, concurrency)
 
-Return ONLY a valid JSON array of issues. No markdown. No explanation.
-If nothing found in any category, return [].
+For each issue, include a fixed_code object showing before/after code (max 6 lines each).
+Use \\n inside fixed_code strings for line breaks — valid JSON only.
+Return ONLY a valid JSON array. No markdown. No explanation. If nothing found, return [].
 """.strip()
-

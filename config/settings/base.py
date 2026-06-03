@@ -75,6 +75,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'accounts.context_processors.github_user',
             ],
         },
     },
@@ -159,7 +160,6 @@ LOGGING = {
     },
 }
 
-
 GITHUB_OAUTH_CLIENT_ID = env("GITHUB_CLIENT_ID")
 GITHUB_OAUTH_CLIENT_SECRET = env("GITHUB_CLIENT_SECRET")
 
@@ -174,6 +174,10 @@ CELERY_IMPORTS = ('tasks.review_tasks',)
 GITHUB_APP_ID = env('GITHUB_APP_ID')
 GITHUB_WEBHOOK_SECRET = env('GITHUB_WEBHOOK_SECRET')
 GITHUB_PRIVATE_KEY_PATH = env('GITHUB_PRIVATE_KEY_PATH')
+GITHUB_APP_INSTALL_URL = env(
+    'GITHUB_APP_INSTALL_URL',
+    default='https://github.com/apps/prizmareview/installations/new',
+)
 
 # Gemini
 GEMINI_API_KEY = env('GEMINI_API_KEY')

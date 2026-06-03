@@ -1,0 +1,40 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page Not Found — PrizmReview</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body class="h-full bg-slate-50 text-slate-800 flex items-center justify-center antialiased selection:bg-indigo-500 selection:text-white">
+
+    <div class="max-w-xl text-center px-6 py-12 bg-white rounded-2xl shadow-xl shadow-slate-100 border border-slate-100 transition-all duration-300 hover:shadow-2xl hover:shadow-slate-200">
+        <div class="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-rose-50 text-rose-500 animate-pulse">
+            <svg class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
+        </div>
+
+        <h1 class="mt-6 text-7xl font-extrabold tracking-tight text-indigo-600 sm:text-8xl">404</h1>
+        <h2 class="mt-4 text-2xl font-bold text-slate-900 tracking-tight sm:text-3xl">Oops! Destination Not Found</h2>
+        <p class="mt-4 text-base leading-7 text-slate-500 max-w-md mx-auto">
+            The page endpoint you requested does not exist or has been moved to a different routing boundary.
+        </p>
+
+        <div class="mt-8 flex items-center justify-center gap-x-4">
+            <a href="/" 
+               class="rounded-lg bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-500 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 transition-all duration-200">
+               Take Me Home
+            </a>
+            
+            <button onclick="window.history.back()" 
+                    class="rounded-lg bg-white border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all duration-200">
+               Go Back
+            </button>
+        </div>
+    </div>
+
+</body>
+</html>

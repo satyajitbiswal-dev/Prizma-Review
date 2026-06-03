@@ -8,6 +8,7 @@ class Repo(models.Model):
     github_repo_id = models.BigIntegerField(unique=True)
     full_name = models.CharField(max_length=255)  # e.g. "torvalds/linux"
     installation_id = models.BigIntegerField()     # GitHub App installation
+    owner_login = models.CharField(max_length=100, blank=True, db_index=True)  # user or org login
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -83,6 +84,8 @@ class Comment(models.Model):
     time_complexity_before = models.CharField(max_length=50, blank=True)  # e.g. "O(n²)"
     time_complexity_after = models.CharField(max_length=50, blank=True)   # e.g. "O(n)"
     github_comment_id = models.BigIntegerField(null=True, blank=True)     # set after posting
+    fixed_code_before = models.TextField(blank=True)  # bad code snippet
+    fixed_code_after  = models.TextField(blank=True)  # corrected snippet
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

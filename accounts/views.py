@@ -26,7 +26,7 @@ def github_login(request):
     """Redirects the user to GitHub's authorization screen."""
     params = (
         f"?client_id={settings.GITHUB_OAUTH_CLIENT_ID}"
-        f"&scope=read:user"
+        f"&scope=read:user%20read:org"
     )
     return redirect(GITHUB_OAUTH_URL + params)
 

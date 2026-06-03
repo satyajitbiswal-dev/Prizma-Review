@@ -15,6 +15,13 @@
                 </p>
             </div>
             <div class="flex items-center gap-3 bg-white/[0.04] border border-white/[0.06] rounded-xl px-5 py-3 self-start">
+                {% if review.status == 'failed' %}
+                <span class="text-2xl">⚠️</span>
+                <div>
+                    <span class="block font-heading text-lg font-900 text-amber-300 leading-tight">Unavailable</span>
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">Review did not complete</span>
+                </div>
+                {% else %}
                 <span class="text-2xl">
                     {% if review.health_score >= 80 %}🟢{% elif review.health_score >= 50 %}🟡{% else %}🔴{% endif %}
                 </span>
@@ -22,6 +29,7 @@
                     <span class="block font-heading text-2xl font-900 text-white leading-tight">{{ review.health_score }}/100</span>
                     <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">PR Health Score</span>
                 </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -101,6 +109,35 @@
                         </h4>
                         <p class="text-sm text-gray-300 leading-relaxed whitespace-pre-line">{{ comment.suggestion }}</p>
                     </div>
+
+                    {% if comment.fixed_code_before or comment.fixed_code_after %}
+                    <div class="rounded-xl border border-white/[0.06] overflow-hidden">
+                        <div class="flex items-center gap-2 px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.06]">
+                            <span class="text-sm">✨</span>
+                            <h4 class="text-xs font-bold uppercase tracking-widest text-purple-300">Suggested Fix</h4>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/[0.06]">
+                            {% if comment.fixed_code_before %}
+                            <div class="p-4 space-y-2 bg-red-500/[0.03]">
+                                <div class="flex items-center gap-1.5 mb-1">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></span>
+                                    <span class="text-[10px] font-bold uppercase tracking-widest text-red-400">Before</span>
+                                </div>
+                                <pre class="text-xs text-red-200 font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto scrollbar-thin"><code>{{ comment.fixed_code_before }}</code></pre>
+                            </div>
+                            {% endif %}
+                            {% if comment.fixed_code_after %}
+                            <div class="p-4 space-y-2 bg-emerald-500/[0.03]">
+                                <div class="flex items-center gap-1.5 mb-1">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                                    <span class="text-[10px] font-bold uppercase tracking-widest text-emerald-400">After</span>
+                                </div>
+                                <pre class="text-xs text-emerald-200 font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto scrollbar-thin"><code>{{ comment.fixed_code_after }}</code></pre>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>

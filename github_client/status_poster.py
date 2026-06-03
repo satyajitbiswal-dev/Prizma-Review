@@ -68,6 +68,11 @@ def post_commit_status_pending(repo_full_name: str, head_sha: str,
     logger.info(f"Commit status → pending ({repo_full_name}@{head_sha[:7]})")
 
 
+UNAVAILABLE_STATUS_DESCRIPTION = (
+    "Sorry — prizmareview is temporarily unavailable. Please try again shortly."
+)
+
+
 def post_commit_status_error(repo_full_name: str, head_sha: str,
                               installation_id: int, reason: str = ""):
     """Post error status if review crashes."""
@@ -84,3 +89,22 @@ def post_commit_status_error(repo_full_name: str, head_sha: str,
     url = f"https://api.github.com/repos/{repo_full_name}/statuses/{head_sha}"
     requests.post(url, json=payload, headers=headers, timeout=10)
     logger.error(f"Commit status → error ({repo_full_name}@{head_sha[:7]})")
+
+
+def post_commit_status_unavailable(repo_full_name: str, head_sha: str,
+                                   installation_id: int):
+    """Post when the review could not run — never show a misleading green 100/100."""
+    token = get_installation_token(installation_id)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept":        "application/vnd.github+json",
+    }
+    payload = {
+        "state":       "error",
+        "description": UNAVAILABLE_STATUS_DESCRIPTION[:140],
+        "context":     "prizmareview / DSA + Security Analysis",
+    }
+    url = f"https://api.github.com/repos/{repo_full_name}/statuses/{head_sha}"
+    resp = requests.post(url, json=payload, headers=headers, timeout=10)
+    resp.raise_for_status()
+    logger.error("Commit status → unavailable (%s@%s)", repo_full_name, head_sha[:7])
