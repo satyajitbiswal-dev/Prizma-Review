@@ -184,6 +184,10 @@ EXTENSION_MAP = {
     ".php": "php",
 }
 
-def _detect_language(filename: str) -> str:
+def detect_language(filename: str) -> str:
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     return EXTENSION_MAP.get(ext, "unknown")
+
+
+def _detect_language(filename: str) -> str:
+    return detect_language(filename)

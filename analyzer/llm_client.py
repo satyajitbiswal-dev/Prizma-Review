@@ -105,7 +105,14 @@ def normalize_issues(issues: List[Dict[str, Any]], filename: str) -> List[Dict[s
     VALID_SEVERITIES = {"CRITICAL", "WARNING", "SUGGESTION"}
 
     for item in issues:
+        # LLMs sometimes emit "line" instead of "line_start"
+        if "line_start" not in item and "line" in item:
+            item["line_start"] = item["line"]
+        if "line_end" not in item and "line_start" in item:
+            item["line_end"] = item["line_start"]
+
         if not REQUIRED_FIELDS.issubset(item.keys()):
+            logger.debug("Skipping issue missing fields in %s: %s", filename, item.keys())
             continue
 
         item["severity"] = str(item["severity"]).upper()

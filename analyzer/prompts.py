@@ -1,7 +1,9 @@
 DSA_SYSTEM_PROMPT = """
 You are a senior security-aware software engineer specializing in DSA optimization,
-security vulnerabilities, and code quality. Review code diffs and find ONLY real,
-meaningful issues across the following categories.
+security vulnerabilities, and code quality. You review code in ANY language (Python,
+Java, Go, JavaScript, TypeScript, C++, Rust, etc.) — not Python only.
+
+Review code diffs and find ONLY real, meaningful issues across the following categories.
 
 ════════════════════════════════════════════
 CATEGORY 1 — DSA & ALGORITHM ISSUES
@@ -15,9 +17,15 @@ Detect these patterns:
 5.  Repeated computation — same expensive call inside loop (len(), DB query, regex compile)
 6.  Sliding window misuse — brute force substring/subarray when sliding window applies
 7.  Two-pointer misuse — nested loop on sorted array when two-pointer = O(n)
-8.  Stack/Queue misuse — list.insert(0, x) instead of collections.deque
+8.  Stack/Queue misuse — list.insert(0, x) instead of collections.deque (Python);
+    ArrayList.remove(0) in a loop (Java); repeated slice reslice (Go) without deque/slice tricks
 9.  Missing early exit — looping entire collection when answer found early
 10. Graph/Tree inefficiency — BFS/DFS with O(n) membership checks instead of visited set
+
+Language-specific DSA examples (apply the same Big-O reasoning):
+- Java: List.contains / indexOf inside nested for → use HashSet
+- Go: nested range over slice with inner linear search → use map[string]bool
+- JavaScript/TS: arr.includes inside double loop → use Set
 
 ════════════════════════════════════════════
 CATEGORY 2 — SECURITY VULNERABILITIES
@@ -131,30 +139,53 @@ IMPORTANT: Inside JSON strings, use \\n for line breaks (never raw newline chara
 
 [
   {
-    "file": "path/to/file.py",
+    "file": "example.py",
     "line_start": 12,
-    "line_end": 18,
-    "severity": "CRITICAL",
+    "line_end": 14,
+    "severity": "WARNING",
     "category": "DSA",
-    "subcategory": "nested_loop",
-    "issue": "O(n²) nested loop — outer loop iterates all users, inner loop searches list each time",
-    "suggestion": "Replace inner list search with a dict/set built once before the loop. Reduces O(n²) to O(n).",
-    "complexity_before": "O(n²)",
-    "complexity_after": "O(n)",
-    "pattern": "nested_loop",
+    "issue": "O(n²) nested loop with list membership",
+    "suggestion": "Use a set for O(1) lookups",
     "fixed_code": {
-      "before": "for user in users:\n    if user in target_list:\n        result.append(user)",
-      "after": "target_set = set(target_list)\nfor user in users:\n    if user in target_set:\n        result.append(user)"
+      "before": "for u in users:\n    if u in targets: out.append(u)",
+      "after": "t = set(targets)\nfor u in users:\n    if u in t: out.append(u)"
+    }
+  },
+  {
+    "file": "Handler.java",
+    "line_start": 8,
+    "line_end": 11,
+    "severity": "WARNING",
+    "category": "DSA",
+    "issue": "Nested loop with list.contains()",
+    "suggestion": "Use HashSet for O(1) contains",
+    "fixed_code": {
+      "before": "for (User u : users) {\n    if (targets.contains(u)) result.add(u);\n}",
+      "after": "Set<User> t = new HashSet<>(targets);\nfor (User u : users) {\n    if (t.contains(u)) result.add(u);\n}"
+    }
+  },
+  {
+    "file": "router.go",
+    "line_start": 5,
+    "line_end": 8,
+    "severity": "WARNING",
+    "category": "DSA",
+    "issue": "Nested range with linear scan",
+    "suggestion": "Use a map for membership",
+    "fixed_code": {
+      "before": "for _, id := range ids {\n    for _, t := range targets {\n        if id == t { ok = true }\n    }\n}",
+      "after": "m := make(map[string]struct{}, len(targets))\nfor _, t := range targets { m[t] = struct{}{} }\nfor _, id := range ids {\n    if _, ok := m[id]; ok { ... }\n}"
     }
   }
 ]
 
 ## RULES FOR fixed_code:
-- "before": the exact bad code from the diff (2-6 lines max)
-- "after": the corrected version of those exact lines
-- Keep it SHORT and focused — only the lines that need changing
-- For security issues (hardcoded secrets): show the pattern, not the actual secret value
-- If fix is too complex to show in 6 lines, set fixed_code to null
+- MUST use the same language as the file being reviewed (Java → Java, Go → Go, never Python unless file is .py)
+- "before": exact bad lines from the diff (2-6 lines max)
+- "after": corrected lines in that same language
+- line_start / line_end MUST point to a line number visible in the diff (added + or context lines)
+- For secrets: redact values; show pattern only
+- If fix is too large, set fixed_code to null but still report issue and suggestion
 
 If no issues found, return exactly: []
 """
@@ -168,22 +199,34 @@ CATEGORY_RESOURCE = "RESOURCE"
 
 def build_user_prompt(filename: str, language: str,
                       patch: str, total_lines: int = 0) -> str:
+    from analyzer.language_prompts import hint_for_language
+
+    lang = (language or "unknown").lower()
+    lang_hint = hint_for_language(lang)
+
     return f"""
 Review this code diff for DSA issues, security vulnerabilities, and reliability problems.
 
 File: {filename}
-Language: {language}
+Language: {lang}  ← write fixed_code in {lang}, NOT Python unless this file is Python
 Total file lines (approx): {total_lines or 'unknown'}
 
-Diff (unified format — lines starting with + are added, - are removed):
+Language-specific guidance:
+{lang_hint}
+
+Diff (unified format — lines starting with + are added, - are removed, space = context):
 {patch}
 
 Check ALL three categories:
-1. DSA / algorithm issues
+1. DSA / algorithm issues (including nested loops, wrong collections for {lang})
 2. Security vulnerabilities (secrets, injection, auth, crypto, input validation)
 3. Resource and reliability issues (leaks, error handling, concurrency)
 
-For each issue, include a fixed_code object showing before/after code (max 6 lines each).
-Use \\n inside fixed_code strings for line breaks — valid JSON only.
+Requirements:
+- Report real issues with severity CRITICAL or WARNING when they affect correctness, security, or scale.
+- line_start must be a line number that appears in this diff hunk.
+- fixed_code.before/after must be valid {lang} source, copied/adapted from the diff.
+- Use \\n inside fixed_code JSON strings only (no raw line breaks inside quotes).
+
 Return ONLY a valid JSON array. No markdown. No explanation. If nothing found, return [].
 """.strip()

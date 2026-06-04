@@ -76,6 +76,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'accounts.context_processors.github_user',
+                'accounts.context_processors.prizmareview_links',
             ],
         },
     },
@@ -194,5 +195,16 @@ LLM_MODEL = env('LLM_MODEL', default='meta-llama/llama-3.3-70b-instruct')
 LLM_PROVIDER = env('LLM_PROVIDER', default='openrouter')
 # OpenRouter site URL for HTTP-Referer (required for some routes / leaderboards)
 OPENROUTER_SITE_URL = env('OPENROUTER_SITE_URL', default='http://localhost:8000')
+
+# Public links shown in dashboard / login UI
+PRIZMAREVIEW_GITHUB_REPO = env(
+    'PRIZMAREVIEW_GITHUB_REPO',
+    default='https://github.com/satyajitbiswal-dev/Prizma-Review',
+)
+PRIZMAREVIEW_CONFIG_FILENAME = '.prizmareview.yml'
+PRIZMAREVIEW_DOCS_CONFIG_URL = (
+    f"{PRIZMAREVIEW_GITHUB_REPO.rstrip('/')}"
+    "#per-repo-configuration"
+)
 
 FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY")

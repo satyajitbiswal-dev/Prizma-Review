@@ -1,4 +1,4 @@
-# 🤖 PrizmReview — AI Code Review GitHub App
+# 🤖 Prizmareview — AI Code Review GitHub App
 
 > A GitHub App that automatically reviews every pull request for DSA anti-patterns, security vulnerabilities, and algorithmic inefficiencies — posting inline comments like a senior engineer, directly on the flagged lines.
 
@@ -10,7 +10,7 @@
 
 ## What It Does
 
-When a developer opens or updates a pull request, PrizmReview:
+When a developer opens or updates a pull request, Prizmareview:
 
 1. Receives the GitHub webhook event instantly
 2. Posts a `⏳ pending` commit status — developer sees the spinner immediately
@@ -27,7 +27,7 @@ All asynchronously — the webhook returns in under 50ms via Celery + Redis.
 
 ## Demo
 
-> Open a PR with an O(n²) loop or a hardcoded API key → PrizmReview posts inline comments within seconds.
+> Open a PR with an O(n²) loop or a hardcoded API key → Prizmareview posts inline comments within seconds.
 
 ```
 🔴 CRITICAL — DSA Issue
@@ -83,8 +83,8 @@ Fix: Implement memoization using a dictionary to store previously computed value
 - **💡 Suggested Fix** — LLM generates the actual corrected code as a diff block
 - **PR Health Score** — 0–100 score with CRITICAL/WARNING/SUGGESTION breakdown
 - **Commit Status Check** — ✅/❌ appears directly on the PR, blockable on merge
-- `**prizmreview: recheck`** — comment on any PR to trigger a fresh review (bot reacts with 👀)
-- `**.prizmreview.yml`** — per-repo config for thresholds, skip paths, language focus
+- `**prizmareview: recheck`** — comment on any PR to trigger a fresh review (bot reacts with 👀)
+- `**.prizmareview.yml`** — per-repo config for thresholds, skip paths, language focus
 - **README Health Badge** — embed a live score badge in your repo README
 - **Multi-language** — Python, JavaScript, TypeScript, Java, Go, Rust, and more
 - **Severity levels** — `CRITICAL` / `WARNING` / `SUGGESTION` with noise filtering
@@ -120,7 +120,7 @@ POST /api/webhooks/github/
         ▼
 Redis Queue ──► Celery Worker
                     │
-                    ├─ Fetch .prizmreview.yml config (or use defaults)
+                    ├─ Fetch .prizmareview.yml config (or use defaults)
                     ├─ Fetch PR diff via GitHub API (paginated)
                     ├─ Sanitize: skip deleted, binary, generated, test files
                     ├─ Chunk by file (skip files > 300 changed lines with note)
@@ -134,7 +134,7 @@ Redis Queue ──► Celery Worker
 
 ## LLM Key Rotation
 
-PrizmReview uses a **3-tier cascading key rotation** system across 12 API keys:
+Prizmareview uses a **3-tier cascading key rotation** system across 12 API keys:
 
 ```
 Tier 1 (OpenRouter × 4) ──► Tier 2 (Gemini × 4) ──► Tier 3 (OpenAI × 4)
@@ -150,10 +150,10 @@ Tier 1 (OpenRouter × 4) ──► Tier 2 (Gemini × 4) ──► Tier 3 (OpenAI
 
 ## Per-Repo Configuration
 
-Drop a `.prizmreview.yml` file in your repo root to customize behavior:
+Drop a `.prizmareview.yml` file in your repo root to customize behavior:
 
 ```yaml
-# .prizmreview.yml
+# .prizmareview.yml
 
 # Health score below this = ❌ commit status fails (default: 50)
 fail_threshold: 60
@@ -186,10 +186,10 @@ Zero config needed — all defaults work out of the box.
 
 ## Recheck Command
 
-Comment `prizmreview: recheck` on any PR to trigger a fresh review:
+Comment `prizmareview: recheck` on any PR to trigger a fresh review:
 
 ```
-@you: prizmreview: recheck
+@you: prizmareview: recheck
 👀 (bot reacts)
 ... fresh review posted within seconds
 ```
@@ -201,7 +201,7 @@ Comment `prizmreview: recheck` on any PR to trigger a fresh review:
 Embed a live health score badge in your repo:
 
 ```markdown
-![PrizmReview](https://yourapp.com/badge/owner/repo-name)
+![Prizmareview](https://yourapp.com/badge/owner/repo-name)
 ```
 
 Renders as a green/yellow/red badge showing average score of last 10 PRs.
@@ -213,8 +213,8 @@ Renders as a green/yellow/red badge showing average score of last 10 PRs.
 ### 1. Clone and install dependencies
 
 ```bash
-git clone https://github.com/your-username/prizmreview.git
-cd prizmreview
+git clone https://github.com/your-username/prizmareview.git
+cd prizmareview
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -262,7 +262,7 @@ python manage.py runserver
 Start Celery worker in a separate terminal:
 
 ```bash
-celery -A prizmreview worker --loglevel=info
+celery -A prizmareview worker --loglevel=info
 ```
 
 ### 4. Add LLM keys via Django Admin
@@ -302,7 +302,7 @@ smee --url https://smee.io/your-channel --target http://localhost:8000/api/webho
 ## Project Structure
 
 ```
-prizmreview/
+prizmareview/
 ├── accounts/
 │   ├── models.py                 # GithubProfile Model
 │   ├── context_processor.py      # Expose GitHub profile + avatar safely on every template
@@ -317,7 +317,7 @@ prizmreview/
 │   ├── llm_client.py        # analyze_chunk — routes to correct provider
 │   ├── prompts.py           # DSA + Security system prompt
 |   ├── models.py            # LLKeyRingSlot Model 
-|   └── repo_config.py       # .prizmreview.yml fetcher
+|   └── repo_config.py       # .prizmareview.yml fetcher
 ├── github_client/
 │   ├── gh_client.py         # GitHub App auth, diff fetcher (paginated)
 │   ├── diff_sanitizer.py    # Skip deleted/binary/generated files

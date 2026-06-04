@@ -3,7 +3,8 @@ import logging
 import requests
 from typing import Any
 from github_client.gh_client import get_installation_token
-from .diff_sanitizer import MAX_CHANGED_LINES
+from .diff_sanitizer import MAX_CHANGED_LINES, detect_language
+from analyzer.diff_lines import resolve_line_in_patch
 
 logger = logging.getLogger(__name__)
 
@@ -105,10 +106,12 @@ def post_github_review(repo_full_name: str, pr_number: int,
     resp.raise_for_status()
     pr_files = resp.json()
 
-    # STEP 2: Compile position mapping tables for files in this PR
-    patch_map = {}  
+    # STEP 2: Compile position mapping tables + raw patches for line snapping
+    patch_map = {}
+    patch_text_map = {}
     for f in pr_files:
         if f.get("patch"):
+            patch_text_map[f["filename"]] = f["patch"]
             patch_map[f["filename"]] = build_position_map(f["patch"])
 
     inline_comments = []
@@ -124,7 +127,12 @@ def post_github_review(repo_full_name: str, pr_number: int,
         complexity_before = _extract_field(comment, "time_complexity_before") or _extract_field(comment, "complexity_before")
         complexity_after = _extract_field(comment, "time_complexity_after") or _extract_field(comment, "complexity_after")
 
-        # Read map to find the required diff position index
+        file_patch = patch_text_map.get(filename, "")
+        if file_patch and line_number is not None:
+            resolved = resolve_line_in_patch(file_patch, int(line_number))
+            if resolved is not None:
+                line_number = resolved
+
         file_positions = patch_map.get(filename, {})
         position = file_positions.get(line_number)
 
@@ -154,15 +162,13 @@ def post_github_review(repo_full_name: str, pr_number: int,
         if complexity_before and complexity_after:
             body += f"\n> Complexity: `{complexity_before}` → `{complexity_after}`"
         if fixed_before or fixed_after:
-            body += "\n\n**✨ Suggested Fix**\n\n"
-            body += "```diff\n"
+            lang = detect_language(filename)
+            fence = lang if lang != "unknown" else "text"
+            body += f"\n\n**✨ Suggested Fix** (`{lang}`)\n\n"
             if fixed_before:
-                for code_line in fixed_before.strip().splitlines():
-                    body += f"- {code_line}\n"
+                body += f"**Before:**\n```{fence}\n{fixed_before.strip()}\n```\n"
             if fixed_after:
-                for code_line in fixed_after.strip().splitlines():
-                    body += f"+ {code_line}\n"
-            body += "```"
+                body += f"**After:**\n```{fence}\n{fixed_after.strip()}\n```\n"
 
         inline_comments.append({
             "path": filename,
@@ -230,7 +236,16 @@ def _build_summary_body(comments: list[dict], health_score: int,
             suggestion = _extract_field(c, "suggestion")
             fname = _extract_field(c, "file_path") or _extract_field(c, "file")
             sev = str(_extract_field(c, "severity", "")).upper()
+            fb = _extract_field(c, "fixed_code_before")
+            fa = _extract_field(c, "fixed_code_after")
             body += f"\n**{sev}** `{fname}`: {issue}\n> {suggestion}\n"
+            if fb or fa:
+                lang = detect_language(fname)
+                fence = lang if lang != "unknown" else "text"
+                if fb:
+                    body += f"\nBefore:\n```{fence}\n{fb.strip()}\n```\n"
+                if fa:
+                    body += f"\nAfter:\n```{fence}\n{fa.strip()}\n```\n"
 
     if service_note:
         body += f"\n> ⚠️ {service_note}\n"

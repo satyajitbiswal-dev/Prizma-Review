@@ -13,6 +13,7 @@ from analyzer.llm_client import (
     CHUNK_ERROR_PROVIDER_EXHAUSTED,
     CHUNK_ERROR_SERVICE_UNAVAILABLE,
 )
+from analyzer.diff_lines import align_issues_to_patch
 from github_client.status_poster import (
     post_commit_status,
     post_commit_status_unavailable,
@@ -103,6 +104,8 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
                             chunk_error,
                         )
                     if issues:
+                        patch = chunk_meta.get("patch", "")
+                        issues = align_issues_to_patch(patch, issues)
                         all_issues.extend(issues)
                 except Exception as exc:
                     error_msg = str(exc)
@@ -142,10 +145,19 @@ def process_pr_review(self, review_id, repo_full_name, pr_number, installation_i
 
         # Filter skip_categories from config
         if config.skip_categories:
+            before = len(all_issues)
             all_issues = [
                 i for i in all_issues
                 if i.get("category", "DSA").upper() not in config.skip_categories
+                and i.get("severity", "").upper() not in config.skip_categories
             ]
+            dropped = before - len(all_issues)
+            if dropped:
+                logger.info(
+                    "Filtered %s issue(s) via skip_categories=%s",
+                    dropped,
+                    config.skip_categories,
+                )
 
         # Use config max_comments instead of hardcoded MAX_COMMENTS
         all_issues = all_issues[:config.max_comments]
